@@ -17,7 +17,7 @@
 #include <errno.h>
 #include <pwd.h>
 
-#ifndef __OpenBSD__
+#ifdef __linux__
 #include <crypt.h>
 #endif
 
