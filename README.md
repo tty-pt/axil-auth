@@ -1,6 +1,6 @@
-# ndc-auth
+# axil-auth
 
-Authentication module for [NDC](https://github.com/tty-pt/ndc) — session management, user registration, login, and ownership helpers.
+Authentication module for [axil](https://github.com/tty-pt/axil) — session management, user registration, login, and ownership helpers.
 
 ## Features
 
@@ -13,9 +13,9 @@ Authentication module for [NDC](https://github.com/tty-pt/ndc) — session manag
 
 | Variable         | Default    | Description              |
 |------------------|------------|--------------------------|
-| `NDC_AUTH_GID`   | `67`       | Group ID for new users   |
-| `NDC_AUTH_GROUP` | `www`      | Group name for new users |
-| `NDC_AUTH_COOKIE`| `QSESSION` | Session cookie name      |
+| `AXIL_AUTH_GID`   | `67`       | Group ID for new users   |
+| `AXIL_AUTH_GROUP` | `www`      | Group name for new users |
+| `AXIL_AUTH_COOKIE`| `QSESSION` | Session cookie name      |
 
 ## HTTP Endpoints
 
@@ -34,8 +34,8 @@ make
 sudo make install
 ```
 
-Then load in your NDC module:
+Then load in your axil module:
 
 ```c
-ndx_load("ndc-auth");
+ndx_load("axil-auth");
 ```

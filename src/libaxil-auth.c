@@ -2,9 +2,9 @@
 #define _DEFAULT_SOURCE 1
 
 #include <ttypt/ndx-mod.h>
-#include <ttypt/ndc.h>
+#include <ttypt/axil.h>
 #include <ttypt/qmap.h>
-#include <ttypt/ndc-ndx.h>
+#include <ttypt/axil-ndx.h>
 
 #include <stddef.h>
 #include <string.h>
@@ -61,47 +61,47 @@ WEAK int
 on_auth_login_ok(int fd, const char *username, const char *redirect)
 {
 	(void)username;
-	return ndc_redirect(fd, (redirect && *redirect) ? redirect : "/");
+	return axil_redirect(fd, (redirect && *redirect) ? redirect : "/");
 }
 
 WEAK int
 on_auth_login_error(int fd, int status, const char *msg, const char *redirect)
 {
 	(void)redirect;
-	return ndc_respond_plain(fd, status, msg);
+	return axil_respond_plain(fd, status, msg);
 }
 
 WEAK int
 on_auth_register_ok(int fd, const char *username, const char *redirect)
 {
 	(void)username;
-	return ndc_redirect(fd, (redirect && *redirect) ? redirect : "/");
+	return axil_redirect(fd, (redirect && *redirect) ? redirect : "/");
 }
 
 WEAK int
 on_auth_register_error(int fd, int status, const char *msg, const char *redirect)
 {
 	(void)redirect;
-	return ndc_respond_plain(fd, status, msg);
+	return axil_respond_plain(fd, status, msg);
 }
 
 WEAK int
 on_auth_logout(int fd, const char *redirect)
 {
-	return ndc_redirect(fd, (redirect && *redirect) ? redirect : "/");
+	return axil_redirect(fd, (redirect && *redirect) ? redirect : "/");
 }
 
 WEAK int
 on_auth_confirm_ok(int fd, const char *username)
 {
 	(void)username;
-	return ndc_redirect(fd, "/");
+	return axil_redirect(fd, "/");
 }
 
 WEAK int
 on_auth_confirm_error(int fd, int status, const char *msg)
 {
-	return ndc_respond_plain(fd, status, msg);
+	return axil_respond_plain(fd, status, msg);
 }
 
 /* Helpers */
@@ -233,7 +233,7 @@ NDX_LISTENER(const char *, get_request_user, int, fd)
 {
 	char cookie[256] = {0};
 	char token[128]  = {0};
-	ndc_env_get(fd, cookie, "HTTP_COOKIE");
+	axil_env_get(fd, cookie, "HTTP_COOKIE");
 	get_cookie(cookie, token, sizeof(token));
 	return get_session_user(token);
 }
@@ -252,7 +252,7 @@ generate_token(char *buf, size_t len)
 {
 	FILE *f = fopen("/dev/urandom", "r");
 	if (!f) {
-		perror("ndc-auth: generate_token: /dev/urandom");
+		perror("axil-auth: generate_token: /dev/urandom");
 		abort();
 	}
 	for (size_t i = 0; i + 1 < len; ) {
@@ -531,11 +531,11 @@ handle_session(int fd, char *body)
 {
 	(void)body;
 	char cookie[256] = {0}, token[128] = {0};
-	ndc_env_get(fd, cookie, "HTTP_COOKIE");
+	axil_env_get(fd, cookie, "HTTP_COOKIE");
 	get_cookie(cookie, token, sizeof(token));
 	const char *username = qmap_get(sessions_map, token);
-	ndc_header_set(fd, "Content-Type", "text/plain");
-	ndc_respond(fd, 200, username ? username : "");
+	axil_header_set(fd, "Content-Type", "text/plain");
+	axil_respond(fd, 200, username ? username : "");
 	return 1;
 }
 
@@ -547,7 +547,7 @@ login_as(int fd, const char *username, const char *target)
 	qmap_put(sessions_map, token, username);
 	snprintf(cookie, sizeof(cookie), "%s=%s%s",
 		auth_config.cookie_name, token, auth_config.cookie_attrs);
-	ndc_header_set(fd, "Set-Cookie", cookie);
+	axil_header_set(fd, "Set-Cookie", cookie);
 	return on_auth_login_ok(fd, username, target);
 }
 
@@ -556,10 +556,10 @@ handle_login(int fd, char *body)
 {
 	char username[64], password[64], redirect_path[256];
 
-	ndc_query_parse(body);
-	ndc_query_param("username", username,      sizeof(username));
-	ndc_query_param("password", password,      sizeof(password));
-	ndc_query_param("ret",      redirect_path, sizeof(redirect_path));
+	axil_query_parse(body);
+	axil_query_param("username", username,      sizeof(username));
+	axil_query_param("password", password,      sizeof(password));
+	axil_query_param("ret",      redirect_path, sizeof(redirect_path));
 
 	const char *ret = redirect_target(redirect_path);
 
@@ -587,20 +587,20 @@ handle_logout(int fd, char *body)
 	char cookie[256] = {0}, token[128] = {0}, clear[256];
 	char ret[256] = {0};
 
-	ndc_env_get(fd, cookie, "HTTP_COOKIE");
+	axil_env_get(fd, cookie, "HTTP_COOKIE");
 	get_cookie(cookie, token, sizeof(token));
 	if (*token)
 		qmap_del(sessions_map, token);
 
 	snprintf(clear, sizeof(clear), "%s=; Path=/; Max-Age=0%s",
 		auth_config.cookie_name, auth_config.cookie_attrs);
-	ndc_header_set(fd, "Set-Cookie", clear);
+	axil_header_set(fd, "Set-Cookie", clear);
 
 	/* allow ?ret= on logout too */
 	char query[256] = {0};
-	ndc_env_get(fd, query, "QUERY_STRING");
-	ndc_query_parse(query);
-	ndc_query_param("ret", ret, sizeof(ret));
+	axil_env_get(fd, query, "QUERY_STRING");
+	axil_query_parse(query);
+	axil_query_param("ret", ret, sizeof(ret));
 
 	return on_auth_logout(fd, redirect_target(ret));
 }
@@ -624,12 +624,12 @@ handle_register(int fd, char *body)
 	int skip_confirm;
 	struct user user = {0};
 
-	ndc_query_parse(body);
-	ndc_query_param("username",  username,         sizeof(username));
-	ndc_query_param("password",  password,         sizeof(password));
-	ndc_query_param("password2", password_confirm, sizeof(password_confirm));
-	ndc_query_param("email",     email,            sizeof(email));
-	ndc_query_param("ret",       redirect_path,    sizeof(redirect_path));
+	axil_query_parse(body);
+	axil_query_param("username",  username,         sizeof(username));
+	axil_query_param("password",  password,         sizeof(password));
+	axil_query_param("password2", password_confirm, sizeof(password_confirm));
+	axil_query_param("email",     email,            sizeof(email));
+	axil_query_param("ret",       redirect_path,    sizeof(redirect_path));
 	target = redirect_target(redirect_path);
 
 	size_t ulen = strlen(username);
@@ -659,11 +659,11 @@ handle_register(int fd, char *body)
 	qmap_put(users_map, username, &user);
 
 	if (shadow_append(username, user.hash, uid) != 0)
-		fprintf(stderr, "ndc-auth: warning: could not write shadow\n");
+		fprintf(stderr, "axil-auth: warning: could not write shadow\n");
 	if (passwd_append(username, uid) != 0)
-		fprintf(stderr, "ndc-auth: warning: could not write passwd\n");
+		fprintf(stderr, "axil-auth: warning: could not write passwd\n");
 	if (group_append(username) != 0)
-		fprintf(stderr, "ndc-auth: warning: could not update group\n");
+		fprintf(stderr, "axil-auth: warning: could not update group\n");
 
 #ifdef __OpenBSD__
 	run_pwd_mkdb();
@@ -673,12 +673,12 @@ handle_register(int fd, char *body)
 	snprintf(rcode_path, sizeof(rcode_path), "%s/rcode",    user_dir);
 
 	if (mkdir(user_dir, 0755) && errno != EEXIST)
-		fprintf(stderr, "ndc-auth: warning: could not create %s\n", user_dir);
+		fprintf(stderr, "axil-auth: warning: could not create %s\n", user_dir);
 
 	char home_dir[1024];
 	snprintf(home_dir, sizeof(home_dir), "%s/%s", auth_config.home_dir, username);
 	if (mkdir(home_dir, 0755) && errno != EEXIST)
-		fprintf(stderr, "ndc-auth: warning: could not create %s\n", home_dir);
+		fprintf(stderr, "axil-auth: warning: could not create %s\n", home_dir);
 
 	if (*email) {
 		char email_path[1088];
@@ -698,7 +698,7 @@ handle_register(int fd, char *body)
 		return on_auth_register_error(fd, 500, "Could not create confirmation", target);
 	fputs(rcode, rf);
 	fclose(rf);
-	fprintf(stderr, "ndc-auth: confirm: %s/confirm?u=%s&r=%s\n",
+	fprintf(stderr, "axil-auth: confirm: %s/confirm?u=%s&r=%s\n",
 		auth_config.route_prefix, username, rcode);
 
 	return on_auth_register_ok(fd, username, target);
@@ -712,10 +712,10 @@ handle_confirm(int fd, char *body)
 	char rcode_path[1024], stored_rcode[128] = {0};
 	struct user user, *existing;
 
-	ndc_env_get(fd, query, "QUERY_STRING");
-	ndc_query_parse(query);
-	ndc_query_param("u", username, sizeof(username));
-	ndc_query_param("r", code,     sizeof(code));
+	axil_env_get(fd, query, "QUERY_STRING");
+	axil_query_parse(query);
+	axil_query_param("u", username, sizeof(username));
+	axil_query_param("r", code,     sizeof(code));
 
 	if (!*username || !*code)
 		return on_auth_confirm_error(fd, 400, "Missing parameters");
@@ -746,7 +746,7 @@ handle_confirm(int fd, char *body)
 	remove(rcode_path);
 
 	if (shadow_update(username, user.hash) != 0)
-		fprintf(stderr, "ndc-auth: warning: could not update shadow\n");
+		fprintf(stderr, "axil-auth: warning: could not update shadow\n");
 
 	return on_auth_confirm_ok(fd, username);
 }
@@ -789,15 +789,15 @@ auth_init(void)
 #endif
 
 	snprintf(route, sizeof(route), "POST:%s/login",     auth_config.route_prefix);
-	ndc_register_handler(route, handle_login);
+	axil_register_handler(route, handle_login);
 	snprintf(route, sizeof(route), "POST:%s/register",  auth_config.route_prefix);
-	ndc_register_handler(route, handle_register);
+	axil_register_handler(route, handle_register);
 	snprintf(route, sizeof(route), "GET:%s/api/session", auth_config.route_prefix);
-	ndc_register_handler(route, handle_session);
+	axil_register_handler(route, handle_session);
 	snprintf(route, sizeof(route), "%s/logout",         auth_config.route_prefix);
-	ndc_register_handler(route, handle_logout);
+	axil_register_handler(route, handle_logout);
 	snprintf(route, sizeof(route), "%s/confirm",        auth_config.route_prefix);
-	ndc_register_handler(route, handle_confirm);
+	axil_register_handler(route, handle_confirm);
 }
 
 /* ndx_install — sets nothing; site configures then calls auth_init() */

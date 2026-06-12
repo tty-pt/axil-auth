@@ -1,5 +1,5 @@
-#ifndef NDC_AUTH_H
-#define NDC_AUTH_H
+#ifndef AXIL_AUTH_H
+#define AXIL_AUTH_H
 
 #include <ttypt/ndx-mod.h>
 #include <stddef.h>
@@ -48,7 +48,7 @@ NDX_HOOK_DECL(int, require_login, int, fd, const char *, username);
 #endif /* !AUTH_IMPL */
 
 /* ---------------------------------------------------------------------------
- * Outcome hooks — plain weak symbols in libndc-auth.so; site overrides by
+ * Outcome hooks — plain weak symbols in libaxil-auth.so; site overrides by
  * providing a strong definition with the same signature.
  * ------------------------------------------------------------------------- */
 int on_auth_login_ok(int fd, const char *username, const char *redirect);
@@ -59,4 +59,4 @@ int on_auth_logout(int fd, const char *redirect);
 int on_auth_confirm_ok(int fd, const char *username);
 int on_auth_confirm_error(int fd, int status, const char *msg);
 
-#endif /* NDC_AUTH_H */
+#endif /* AXIL_AUTH_H */

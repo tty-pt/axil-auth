@@ -9,8 +9,8 @@ jobs:
   build:
     uses: tty-pt/ci/.github/workflows/all-in-one.yml@main
     with:
-      name: ndc-auth
-      deps: "libndc,libqmap,libndx"
+      name: axil-auth
+      deps: "libaxil,libqmap,libndx"
       publish_to: "deb,apk,rpm,brew,openbsd"
     secrets:
       HOST: ${{ secrets.OPENBSD_HOST }}

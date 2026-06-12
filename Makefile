@@ -1,9 +1,12 @@
-all := libndc-auth
-SONAME-libndc-auth := ndc-auth
+all := libaxil-auth
+SONAME-libaxil-auth := axil-auth
 
-LDLIBS-libndc-auth := -lndc -lqmap -lndx
-LDLIBS-libndc-auth-Linux := -lcrypt
-LDFLAGS-libndc-auth-Darwin := -undefined dynamic_lookup
+LDLIBS-libaxil-auth := -laxil -lqmap -lndx
+LDLIBS-libaxil-auth-Linux := -lcrypt
+LDFLAGS-libaxil-auth-Darwin := -undefined dynamic_lookup
+LDFLAGS-libaxil-auth := -L$(shell cd .. && pwd)/axil/lib
+
+CFLAGS += -I$(shell cd .. && pwd)/axil/include
 
 -include ./../mk/include.mk
 

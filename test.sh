@@ -3,7 +3,7 @@ set -e
 
 BASE="${AUTH_BASE:-http://localhost:8080}"
 PREFIX="${AUTH_PREFIX:-/auth}"
-COOKIE="/tmp/ndc_auth_test_$$"
+COOKIE="/tmp/axil_auth_test_$$"
 USER="testuser_$$"
 
 fail() { echo "FAIL: $1"; rm -f "$COOKIE"; exit 1; }
@@ -87,4 +87,4 @@ status2=$(curl -so /dev/null -w "%{http_code}" \
 [ "$status2" = "200" ] && pass "multi-cookie no crash" || fail "expected 200, got: $status2"
 
 rm -f "$COOKIE"
-echo "All ndc-auth tests passed."
+echo "All axil-auth tests passed."

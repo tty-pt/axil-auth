@@ -1,1 +1,1 @@
-CFLAGS-libndc-auth-o := -fPIC
+CFLAGS-libaxil-auth-o := -fPIC
