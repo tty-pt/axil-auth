@@ -1,7 +1,7 @@
 #ifndef AXIL_AUTH_H
 #define AXIL_AUTH_H
 
-#include <ttypt/ndx-mod.h>
+#include <ttypt/xy-mod.h>
 #include <stddef.h>
 
 /* ---------------------------------------------------------------------------
@@ -31,20 +31,20 @@ void auth_init(void);
 int auth_get_uid(const char *username);
 
 /* ---------------------------------------------------------------------------
- * Session hooks — callers dispatch through the ndx bus.
+ * Session hooks — callers dispatch through the xy bus.
  * The implementation TU (AUTH_IMPL) skips these DECL expansions and uses
- * NDX_LISTENER directly to avoid redefinition.
+ * XY_IMPL directly to avoid redefinition.
  * ------------------------------------------------------------------------- */
 
 #ifndef AUTH_IMPL
-NDX_HOOK_DECL(int, get_cookie,
+XY_DECL(int, get_cookie,
 	const char *, cookie, char *, token, size_t, len);
 
-NDX_HOOK_DECL(const char *, get_session_user, const char *, token);
+XY_DECL(const char *, get_session_user, const char *, token);
 
-NDX_HOOK_DECL(const char *, get_request_user, int, fd);
+XY_DECL(const char *, get_request_user, int, fd);
 
-NDX_HOOK_DECL(int, require_login, int, fd, const char *, username);
+XY_DECL(int, require_login, int, fd, const char *, username);
 #endif /* !AUTH_IMPL */
 
 /* ---------------------------------------------------------------------------

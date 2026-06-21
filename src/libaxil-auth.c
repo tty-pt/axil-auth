@@ -1,10 +1,10 @@
 #define _XOPEN_SOURCE 700
 #define _DEFAULT_SOURCE 1
 
-#include <ttypt/ndx-mod.h>
+#include <ttypt/xy-mod.h>
 #include <ttypt/axil.h>
 #include <ttypt/qmap.h>
-#include <ttypt/axil-ndx.h>
+#include <ttypt/axil-xy.h>
 
 #include <stddef.h>
 #include <string.h>
@@ -182,14 +182,14 @@ next_uid(void)
 
 /* Session helpers */
 
-NDX_LISTENER(const char *, get_session_user, const char *, token)
+XY_IMPL(const char *, get_session_user, const char *, token)
 {
 	if (!token || !*token)
 		return NULL;
 	return qmap_get(sessions_map, token);
 }
 
-NDX_LISTENER(int, get_cookie,
+XY_IMPL(int, get_cookie,
 	const char *, cookie, char *, token, size_t, len)
 {
 	const char *p;
@@ -229,7 +229,7 @@ NDX_LISTENER(int, get_cookie,
 	return -1;
 }
 
-NDX_LISTENER(const char *, get_request_user, int, fd)
+XY_IMPL(const char *, get_request_user, int, fd)
 {
 	char cookie[256] = {0};
 	char token[128]  = {0};
@@ -238,7 +238,7 @@ NDX_LISTENER(const char *, get_request_user, int, fd)
 	return get_session_user(token);
 }
 
-NDX_LISTENER(int, require_login, int, fd, const char *, username)
+XY_IMPL(int, require_login, int, fd, const char *, username)
 {
 	if (username && *username)
 		return 0;
@@ -800,7 +800,7 @@ auth_init(void)
 	axil_register_handler(route, handle_confirm);
 }
 
-/* ndx_install — sets nothing; site configures then calls auth_init() */
+/* xy_install — sets nothing; site configures then calls auth_init() */
 
 int
 auth_get_uid(const char *username)
@@ -810,7 +810,7 @@ auth_get_uid(const char *username)
 }
 
 void
-ndx_install(void)
+xy_install(void)
 {
 	/* Intentionally empty.
 	 * Write auth_config fields as needed, then call auth_init(). */

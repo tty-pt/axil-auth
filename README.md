@@ -37,5 +37,5 @@ sudo make install
 Then load in your axil module:
 
 ```c
-ndx_load("axil-auth");
+xy_load("axil-auth");
 ```
