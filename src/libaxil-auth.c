@@ -39,6 +39,7 @@ struct auth_config auth_config = {
 	.www_gid      = 67,
 	.max_sessions = 0xFF,
 	.max_users    = 0xFFFF,
+	.session_ttl  = 86400,
 };
 
 /* ------------------------------------------------------------------ */
@@ -52,6 +53,11 @@ struct user {
 	char active;
 	int  uid;
 	char hash[64];
+};
+
+struct session {
+	char username[64];
+	time_t created_at;
 };
 
 /* Outcome hook defaults
@@ -122,7 +128,22 @@ skip_confirm_required(void)
 static const char *
 redirect_target(const char *path)
 {
-	return (path && *path) ? path : "/";
+	if (!path || !*path)
+		return "/";
+
+	/* Must be a same-origin relative path */
+	if (path[0] != '/')
+		return "/";
+	if (path[1] == '/')
+		return "/";
+
+	/* Reject control characters that survive URL-decode */
+	for (const char *p = path; *p; p++) {
+		unsigned char c = (unsigned char)*p;
+		if (c < 0x20 || c == 0x7f)
+			return "/";
+	}
+	return path;
 }
 
 static void
@@ -186,7 +207,15 @@ XY_IMPL(const char *, get_session_user, const char *, token)
 {
 	if (!token || !*token)
 		return NULL;
-	return qmap_get(sessions_map, token);
+	const struct session *s = qmap_get(sessions_map, token);
+	if (!s)
+		return NULL;
+	if (auth_config.session_ttl > 0 &&
+	    (time(NULL) - s->created_at) > (time_t)auth_config.session_ttl) {
+		qmap_del(sessions_map, token);
+		return NULL;
+	}
+	return s->username;
 }
 
 XY_IMPL(int, get_cookie,
@@ -233,7 +262,7 @@ XY_IMPL(const char *, get_request_user, int, fd)
 {
 	char cookie[256] = {0};
 	char token[128]  = {0};
-	axil_env_get(fd, cookie, "HTTP_COOKIE");
+	axil_env_get(fd, cookie, sizeof(cookie), "HTTP_COOKIE");
 	get_cookie(cookie, token, sizeof(token));
 	return get_session_user(token);
 }
@@ -247,27 +276,26 @@ XY_IMPL(int, require_login, int, fd, const char *, username)
 
 /* Token generation */
 
-static void
+static int
 generate_token(char *buf, size_t len)
 {
 	FILE *f = fopen("/dev/urandom", "r");
-	if (!f) {
-		perror("axil-auth: generate_token: /dev/urandom");
-		abort();
-	}
+	if (!f)
+		return -1;
 	for (size_t i = 0; i + 1 < len; ) {
 		int c = fgetc(f);
-		if (c == EOF) break;
+		if (c == EOF) { fclose(f); return -1; }
 		buf[i++] = "0123456789abcdef"[(c >> 4) & 15];
 		buf[i++] = "0123456789abcdef"[c & 15];
 	}
 	buf[len - 1] = '\0';
 	fclose(f);
+	return 0;
 }
 
 /* Password hashing */
 
-static void
+static int
 generate_bcrypt_salt(char *buf, size_t len)
 {
 	static const char b64[] =
@@ -282,15 +310,13 @@ generate_bcrypt_salt(char *buf, size_t len)
 	}
 
 	FILE *f = fopen("/dev/urandom", "r");
-	if (f) {
-		if (fread(rnd, 1, sizeof(rnd), f) != sizeof(rnd))
-			memset(rnd, 0, sizeof(rnd));
+	if (!f)
+		return -1;
+	if (fread(rnd, 1, sizeof(rnd), f) != sizeof(rnd)) {
 		fclose(f);
-	} else {
-		unsigned long long t = (unsigned long long)time(NULL);
-		for (int i = 0; i < 16; i++)
-			rnd[i] = (unsigned char)(t >> (i % 8));
+		return -1;
 	}
+	fclose(f);
 
 	char salt[23];
 	unsigned int bbuf = 0;
@@ -308,6 +334,7 @@ generate_bcrypt_salt(char *buf, size_t len)
 	salt[22] = '\0';
 
 	snprintf(buf, len, "$2b$%02d$%s", cost, salt);
+	return 0;
 }
 
 /* Shadow / passwd / group file I/O */
@@ -531,9 +558,9 @@ handle_session(int fd, char *body)
 {
 	(void)body;
 	char cookie[256] = {0}, token[128] = {0};
-	axil_env_get(fd, cookie, "HTTP_COOKIE");
+	axil_env_get(fd, cookie, sizeof(cookie), "HTTP_COOKIE");
 	get_cookie(cookie, token, sizeof(token));
-	const char *username = qmap_get(sessions_map, token);
+	const char *username = get_session_user(token);
 	axil_header_set(fd, "Content-Type", "text/plain");
 	axil_respond(fd, 200, username ? username : "");
 	return 1;
@@ -542,9 +569,39 @@ handle_session(int fd, char *body)
 static int
 login_as(int fd, const char *username, const char *target)
 {
-	char token[128], cookie[256];
-	generate_token(token, sizeof(token));
-	qmap_put(sessions_map, token, username);
+	/* Evict oldest session for this user if at cap */
+	enum { MAX_PER_USER = 8 };
+	uint32_t cur = qmap_iter(sessions_map, NULL, 0);
+	const void *k, *v;
+	time_t oldest_time = 0;
+	char oldest_token[128] = {0};
+	int count = 0;
+
+	while (qmap_next(&k, &v, cur)) {
+		const struct session *s = v;
+		if (strcmp(s->username, username) == 0) {
+			count++;
+			if (oldest_time == 0 || s->created_at < oldest_time) {
+				oldest_time = s->created_at;
+				strncpy(oldest_token, k, sizeof(oldest_token) - 1);
+			}
+		}
+	}
+	qmap_fin(cur);
+
+	if (count >= MAX_PER_USER && *oldest_token)
+		qmap_del(sessions_map, oldest_token);
+
+	char token[128], cookie[512];
+	if (generate_token(token, sizeof(token)) != 0)
+		return on_auth_login_error(fd, 500, "Token generation failed", target);
+
+	struct session sess;
+	strncpy(sess.username, username, sizeof(sess.username) - 1);
+	sess.username[sizeof(sess.username) - 1] = '\0';
+	sess.created_at = time(NULL);
+	qmap_put(sessions_map, token, &sess);
+
 	snprintf(cookie, sizeof(cookie), "%s=%s%s",
 		auth_config.cookie_name, token, auth_config.cookie_attrs);
 	axil_header_set(fd, "Set-Cookie", cookie);
@@ -587,7 +644,7 @@ handle_logout(int fd, char *body)
 	char cookie[256] = {0}, token[128] = {0}, clear[256];
 	char ret[256] = {0};
 
-	axil_env_get(fd, cookie, "HTTP_COOKIE");
+	axil_env_get(fd, cookie, sizeof(cookie), "HTTP_COOKIE");
 	get_cookie(cookie, token, sizeof(token));
 	if (*token)
 		qmap_del(sessions_map, token);
@@ -598,7 +655,7 @@ handle_logout(int fd, char *body)
 
 	/* allow ?ret= on logout too */
 	char query[256] = {0};
-	axil_env_get(fd, query, "QUERY_STRING");
+	axil_env_get(fd, query, sizeof(query), "QUERY_STRING");
 	axil_query_parse(query);
 	axil_query_param("ret", ret, sizeof(ret));
 
@@ -645,7 +702,8 @@ handle_register(int fd, char *body)
 	if (qmap_get(users_map, username))
 		return on_auth_register_error(fd, 400, "Username already exists", target);
 
-	generate_bcrypt_salt(salt, sizeof(salt));
+	if (generate_bcrypt_salt(salt, sizeof(salt)) != 0)
+		return on_auth_register_error(fd, 500, "Salt generation failed", target);
 	char *hash = crypt(password, salt);
 	if (!hash)
 		return on_auth_register_error(fd, 500, "Password hashing failed", target);
@@ -692,7 +750,8 @@ handle_register(int fd, char *body)
 		return login_as(fd, username, target);
 	}
 
-	generate_token(rcode, sizeof(rcode));
+	if (generate_token(rcode, sizeof(rcode)) != 0)
+		return on_auth_register_error(fd, 500, "Token generation failed", target);
 	FILE *rf = fopen(rcode_path, "w");
 	if (!rf)
 		return on_auth_register_error(fd, 500, "Could not create confirmation", target);
@@ -712,7 +771,7 @@ handle_confirm(int fd, char *body)
 	char rcode_path[1024], stored_rcode[128] = {0};
 	struct user user, *existing;
 
-	axil_env_get(fd, query, "QUERY_STRING");
+	axil_env_get(fd, query, sizeof(query), "QUERY_STRING");
 	axil_query_parse(query);
 	axil_query_param("u", username, sizeof(username));
 	axil_query_param("r", code,     sizeof(code));
@@ -761,7 +820,8 @@ auth_init(void)
 	users_map = qmap_open(NULL, "users", QM_STR,
 		qmap_reg(sizeof(struct user)),
 		auth_config.max_users, 0);
-	sessions_map = qmap_open(NULL, "sess", QM_STR, QM_STR,
+	sessions_map = qmap_open(NULL, "sess", QM_STR,
+		qmap_reg(sizeof(struct session)),
 		auth_config.max_sessions, 0);
 
 	mkdir(auth_config.etc_dir,   0755);

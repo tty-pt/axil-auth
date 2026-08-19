@@ -19,6 +19,7 @@ struct auth_config {
 	int         www_gid;       /* default: 67                                 */
 	unsigned    max_sessions;  /* default: 0xFF                               */
 	unsigned    max_users;     /* default: 0xFFFF                             */
+	unsigned    session_ttl;   /* default: 86400 (24h); 0 = no expiry        */
 };
 
 extern struct auth_config auth_config;
