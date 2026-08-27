@@ -31,6 +31,18 @@ void auth_init(void);
 /* Look up the uid for a registered username. Returns -1 if not found. */
 int auth_get_uid(const char *username);
 
+/* Look up the username for a registered uid. Returns 0 on success, -1 if not found. */
+int auth_get_username(int uid, char *out, size_t len);
+
+/* Group management and POSIX /etc/group operations */
+int auth_create_group(const char *grp_name);
+int auth_get_gid(const char *grp_name);
+int auth_get_grpname(int gid, char *out, size_t len);
+int auth_user_in_group(const char *username, const char *grp_name);
+int auth_group_add_member(const char *grp_name, const char *username);
+int auth_group_del_member(const char *grp_name, const char *username);
+int auth_group_get_members(const char *grp_name, char *out, size_t len);
+
 /* ---------------------------------------------------------------------------
  * Session hooks — callers dispatch through the xy bus.
  * The implementation TU (AUTH_IMPL) skips these DECL expansions and uses
