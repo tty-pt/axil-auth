@@ -10,7 +10,7 @@ jobs:
     uses: tty-pt/ci/.github/workflows/all-in-one.yml@main
     with:
       name: axil-auth
-      deps: "libaxil,libqmap,libxylem"
+      deps: "axil,libqmap,libxylem"
       publish_to: "deb,apk,rpm,brew,openbsd"
     secrets:
       HOST: ${{ secrets.OPENBSD_HOST }}

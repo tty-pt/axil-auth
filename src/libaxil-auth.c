@@ -68,54 +68,125 @@ struct session {
 	time_t created_at;
 };
 
-/* Outcome hook defaults
- * (weak — site overrides by redefining)
- */
-WEAK int
-on_auth_login_ok(int fd, const char *username, const char *redirect)
+/* Outcome hook defaults — plain-text / redirect fallbacks used when no module
+ * listens for a hook on the xy bus.  A site (e.g. mods/auth) may render richer
+ * responses (an HTML login form) by implementing a hook with XY_IMPL
+ * (define AUTH_OUTCOME_IMPL before including auth.h). */
+
+static int
+auth_default_login_ok(int fd, const char *username, const char *redirect)
 {
 	(void)username;
 	return axil_redirect(fd, (redirect && *redirect) ? redirect : "/");
 }
 
-WEAK int
-on_auth_login_error(int fd, int status, const char *msg, const char *redirect)
+static int
+auth_default_login_error(int fd, int status, const char *msg, const char *redirect)
 {
 	(void)redirect;
 	return axil_respond_plain(fd, status, msg);
 }
 
-WEAK int
-on_auth_register_ok(int fd, const char *username, const char *redirect)
+static int
+auth_default_register_ok(int fd, const char *username, const char *redirect)
 {
 	(void)username;
 	return axil_redirect(fd, (redirect && *redirect) ? redirect : "/");
 }
 
-WEAK int
-on_auth_register_error(int fd, int status, const char *msg, const char *redirect)
+static int
+auth_default_register_error(int fd, int status, const char *msg, const char *redirect)
 {
 	(void)redirect;
 	return axil_respond_plain(fd, status, msg);
 }
 
-WEAK int
-on_auth_logout(int fd, const char *redirect)
+static int
+auth_default_logout(int fd, const char *redirect)
 {
 	return axil_redirect(fd, (redirect && *redirect) ? redirect : "/");
 }
 
-WEAK int
-on_auth_confirm_ok(int fd, const char *username)
+static int
+auth_default_confirm_ok(int fd, const char *username)
 {
 	(void)username;
 	return axil_redirect(fd, "/");
 }
 
-WEAK int
-on_auth_confirm_error(int fd, int status, const char *msg)
+static int
+auth_default_confirm_error(int fd, int status, const char *msg)
 {
 	return axil_respond_plain(fd, status, msg);
+}
+
+/* Outcome hook dispatch — route through the xy bus so the site can provide
+ * richer responses (e.g. an HTML login form).  xy.last() reports whether the
+ * dispatch actually ran a listener, so a listener that returns 0 is not
+ * mistaken for "nobody listened"; when no module implements the hook we fall
+ * back to the plain defaults above. */
+
+static int
+auth_login_ok(int fd, const char *username, const char *redirect)
+{
+	int rc = on_auth_login_ok(fd, username, redirect);
+	if (xy.last(NULL) == XY_OK)
+		return rc;
+	return auth_default_login_ok(fd, username, redirect);
+}
+
+static int
+auth_login_error(int fd, int status, const char *msg, const char *redirect)
+{
+	int rc = on_auth_login_error(fd, status, msg, redirect);
+	if (xy.last(NULL) == XY_OK)
+		return rc;
+	return auth_default_login_error(fd, status, msg, redirect);
+}
+
+static int
+auth_register_ok(int fd, const char *username, const char *redirect)
+{
+	int rc = on_auth_register_ok(fd, username, redirect);
+	if (xy.last(NULL) == XY_OK)
+		return rc;
+	return auth_default_register_ok(fd, username, redirect);
+}
+
+static int
+auth_register_error(int fd, int status, const char *msg, const char *redirect)
+{
+	int rc = on_auth_register_error(fd, status, msg, redirect);
+	if (xy.last(NULL) == XY_OK)
+		return rc;
+	return auth_default_register_error(fd, status, msg, redirect);
+}
+
+static int
+auth_logout(int fd, const char *redirect)
+{
+	int rc = on_auth_logout(fd, redirect);
+	if (xy.last(NULL) == XY_OK)
+		return rc;
+	return auth_default_logout(fd, redirect);
+}
+
+static int
+auth_confirm_ok(int fd, const char *username)
+{
+	int rc = on_auth_confirm_ok(fd, username);
+	if (xy.last(NULL) == XY_OK)
+		return rc;
+	return auth_default_confirm_ok(fd, username);
+}
+
+static int
+auth_confirm_error(int fd, int status, const char *msg)
+{
+	int rc = on_auth_confirm_error(fd, status, msg);
+	if (xy.last(NULL) == XY_OK)
+		return rc;
+	return auth_default_confirm_error(fd, status, msg);
 }
 
 /* Helpers */
@@ -279,7 +350,7 @@ XY_IMPL(int, require_login, int, fd, const char *, username)
 {
 	if (username && *username)
 		return 0;
-	return on_auth_login_error(fd, 401, "Login required", "");
+	return auth_login_error(fd, 401, "Login required", "");
 }
 
 /* Token generation */
@@ -678,7 +749,7 @@ login_as(int fd, const char *username, const char *target)
 
 	char token[128], cookie[512];
 	if (generate_token(token, sizeof(token)) != 0)
-		return on_auth_login_error(fd, 500, "Token generation failed", target);
+		return auth_login_error(fd, 500, "Token generation failed", target);
 
 	struct session sess;
 	strncpy(sess.username, username, sizeof(sess.username) - 1);
@@ -689,7 +760,7 @@ login_as(int fd, const char *username, const char *target)
 	snprintf(cookie, sizeof(cookie), "%s=%s%s",
 		auth_config.cookie_name, token, auth_config.cookie_attrs);
 	axil_header_set(fd, "Set-Cookie", cookie);
-	return on_auth_login_ok(fd, username, target);
+	return auth_login_ok(fd, username, target);
 }
 
 static int
@@ -705,18 +776,18 @@ handle_login(int fd, char *body)
 	const char *ret = redirect_target(redirect_path);
 
 	if (!*username || !*password)
-		return on_auth_login_error(fd, 400, "Missing username or password", ret);
+		return auth_login_error(fd, 400, "Missing username or password", ret);
 
 	struct user *user = (struct user *)qmap_get(users_map, username);
 	if (!user)
-		return on_auth_login_error(fd, 401, "Invalid credentials", ret);
+		return auth_login_error(fd, 401, "Invalid credentials", ret);
 
 	char *hash = crypt(password, user->hash);
 	if (!hash || strcmp(hash, user->hash) != 0)
-		return on_auth_login_error(fd, 401, "Invalid credentials", ret);
+		return auth_login_error(fd, 401, "Invalid credentials", ret);
 
 	if (!user->active)
-		return on_auth_login_error(fd, 401, "Account not confirmed", ret);
+		return auth_login_error(fd, 401, "Account not confirmed", ret);
 
 	return login_as(fd, username, ret);
 }
@@ -743,7 +814,7 @@ handle_logout(int fd, char *body)
 	axil_query_parse(query);
 	axil_query_param("ret", ret, sizeof(ret));
 
-	return on_auth_logout(fd, redirect_target(ret));
+	return auth_logout(fd, redirect_target(ret));
 }
 
 static int
@@ -775,22 +846,22 @@ handle_register(int fd, char *body)
 
 	size_t ulen = strlen(username);
 	if (ulen < 2 || ulen > 32)
-		return on_auth_register_error(fd, 400, "Username must be 2-32 characters", target);
+		return auth_register_error(fd, 400, "Username must be 2-32 characters", target);
 	for (char *p = username; *p; p++)
 		if (!valid_username_char(*p))
-			return on_auth_register_error(fd, 400, "Invalid username character", target);
+			return auth_register_error(fd, 400, "Invalid username character", target);
 	if (strlen(password) < 8)
-		return on_auth_register_error(fd, 400, "Password must be at least 8 characters", target);
+		return auth_register_error(fd, 400, "Password must be at least 8 characters", target);
 	if (strcmp(password, password_confirm) != 0)
-		return on_auth_register_error(fd, 400, "Passwords do not match", target);
+		return auth_register_error(fd, 400, "Passwords do not match", target);
 	if (qmap_get(users_map, username))
-		return on_auth_register_error(fd, 400, "Username already exists", target);
+		return auth_register_error(fd, 400, "Username already exists", target);
 
 	if (generate_bcrypt_salt(salt, sizeof(salt)) != 0)
-		return on_auth_register_error(fd, 500, "Salt generation failed", target);
+		return auth_register_error(fd, 500, "Salt generation failed", target);
 	char *hash = crypt(password, salt);
 	if (!hash)
-		return on_auth_register_error(fd, 500, "Password hashing failed", target);
+		return auth_register_error(fd, 500, "Password hashing failed", target);
 
 	int uid = next_uid();
 	strncpy(user.hash, hash, sizeof(user.hash) - 1);
@@ -839,17 +910,17 @@ handle_register(int fd, char *body)
 	}
 
 	if (generate_token(rcode, sizeof(rcode)) != 0)
-		return on_auth_register_error(fd, 500, "Token generation failed", target);
+		return auth_register_error(fd, 500, "Token generation failed", target);
 	int rf_fd = open(rcode_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 	if (rf_fd < 0)
-		return on_auth_register_error(fd, 500, "Could not create confirmation", target);
+		return auth_register_error(fd, 500, "Could not create confirmation", target);
 	ssize_t rlen = (ssize_t)strlen(rcode);
 	if (write(rf_fd, rcode, rlen) < 0) { /* ignore */ }
 	close(rf_fd);
 	fprintf(stderr, "axil-auth: confirm: %s/confirm?u=%s&r=%s\n",
 		auth_config.route_prefix, username, rcode);
 
-	return on_auth_register_ok(fd, username, target);
+	return auth_register_ok(fd, username, target);
 }
 
 static int
@@ -866,27 +937,27 @@ handle_confirm(int fd, char *body)
 	axil_query_param("r", code,     sizeof(code));
 
 	if (!*username || !*code)
-		return on_auth_confirm_error(fd, 400, "Missing parameters");
+		return auth_confirm_error(fd, 400, "Missing parameters");
 
 	existing = (struct user *)qmap_get(users_map, username);
 	if (!existing || existing->active)
-		return on_auth_confirm_error(fd, 400, "Invalid confirmation");
+		return auth_confirm_error(fd, 400, "Invalid confirmation");
 
 	snprintf(rcode_path, sizeof(rcode_path),
 		"%s/%s/rcode", auth_config.users_dir, username);
 
 	FILE *rf = fopen(rcode_path, "r");
 	if (!rf)
-		return on_auth_confirm_error(fd, 400, "No confirmation pending");
+		return auth_confirm_error(fd, 400, "No confirmation pending");
 	if (!fgets(stored_rcode, sizeof(stored_rcode), rf)) {
 		fclose(rf);
-		return on_auth_confirm_error(fd, 400, "Could not read confirmation code");
+		return auth_confirm_error(fd, 400, "Could not read confirmation code");
 	}
 	fclose(rf);
 	strip_trailing_nl(stored_rcode);
 
 	if (strcmp(code, stored_rcode) != 0)
-		return on_auth_confirm_error(fd, 400, "Wrong confirmation code");
+		return auth_confirm_error(fd, 400, "Wrong confirmation code");
 
 	memcpy(&user, existing, sizeof(user));
 	user.active = 1;
@@ -896,7 +967,7 @@ handle_confirm(int fd, char *body)
 	if (shadow_update(username, user.hash) != 0)
 		fprintf(stderr, "axil-auth: warning: could not update shadow\n");
 
-	return on_auth_confirm_ok(fd, username);
+	return auth_confirm_ok(fd, username);
 }
 
 /* auth_init — call after writing auth_config fields */

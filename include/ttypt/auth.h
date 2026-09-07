@@ -61,15 +61,36 @@ XY_DECL(int, require_login, int, fd, const char *, username);
 #endif /* !AUTH_IMPL */
 
 /* ---------------------------------------------------------------------------
- * Outcome hooks — plain weak symbols in libaxil-auth.so; site overrides by
- * providing a strong definition with the same signature.
+ * Outcome hooks — callers dispatch through the xy bus.  libaxil-auth provides
+ * plain-response defaults and falls back to them when no module listens.
+ * A site can render its own responses (e.g. an HTML login form) by being the
+ * sole listener for a hook: define AUTH_OUTCOME_IMPL before including this
+ * header and use XY_IMPL for the hooks it implements, matching these
+ * signatures.  The implementation never relies on symbol interposition, so
+ * module load order does not matter.
  * ------------------------------------------------------------------------- */
-int on_auth_login_ok(int fd, const char *username, const char *redirect);
-int on_auth_login_error(int fd, int status, const char *msg, const char *redirect);
-int on_auth_register_ok(int fd, const char *username, const char *redirect);
-int on_auth_register_error(int fd, int status, const char *msg, const char *redirect);
-int on_auth_logout(int fd, const char *redirect);
-int on_auth_confirm_ok(int fd, const char *username);
-int on_auth_confirm_error(int fd, int status, const char *msg);
+
+#ifndef AUTH_OUTCOME_IMPL
+XY_DECL(int, on_auth_login_ok,
+	int, fd, const char *, username, const char *, redirect);
+
+XY_DECL(int, on_auth_login_error,
+	int, fd, int, status, const char *, msg, const char *, redirect);
+
+XY_DECL(int, on_auth_register_ok,
+	int, fd, const char *, username, const char *, redirect);
+
+XY_DECL(int, on_auth_register_error,
+	int, fd, int, status, const char *, msg, const char *, redirect);
+
+XY_DECL(int, on_auth_logout,
+	int, fd, const char *, redirect);
+
+XY_DECL(int, on_auth_confirm_ok,
+	int, fd, const char *, username);
+
+XY_DECL(int, on_auth_confirm_error,
+	int, fd, int, status, const char *, msg);
+#endif /* !AUTH_OUTCOME_IMPL */
 
 #endif /* AXIL_AUTH_H */
