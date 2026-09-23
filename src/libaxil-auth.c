@@ -3,7 +3,7 @@
 
 #include <ttypt/xy-mod.h>
 #include <ttypt/axil.h>
-#include <ttypt/qmap.h>
+#include <ttypt/corm.h>
 #include <ttypt/axil-xy.h>
 
 #include <stddef.h>
@@ -286,12 +286,12 @@ XY_IMPL(const char *, get_session_user, const char *, token)
 {
 	if (!token || !*token)
 		return NULL;
-	const struct session *s = qmap_get(sessions_map, token);
+	const struct session *s = corm_get(sessions_map, token);
 	if (!s)
 		return NULL;
 	if (auth_config.session_ttl > 0 &&
 	    (time(NULL) - s->created_at) > (time_t)auth_config.session_ttl) {
-		qmap_del(sessions_map, token);
+		corm_del(sessions_map, token);
 		return NULL;
 	}
 	return s->username;
@@ -475,15 +475,15 @@ sync_group_file(void)
 	if (!out) { close(out_fd); return -1; }
 
 	if (groups_map) {
-		uint32_t cur = qmap_iter(groups_map, NULL, 0);
+		uint32_t cur = corm_iter(groups_map, NULL, 0);
 		const void *k, *v;
-		while (qmap_next(&k, &v, cur)) {
+		while (corm_next(&k, &v, cur)) {
 			const struct grp_rec *g = v;
 			if (g) {
 				fprintf(out, "%s:x:%d:%s\n", (const char *)k, g->gid, g->members);
 			}
 		}
-		qmap_fin(cur);
+		corm_fin(cur);
 	}
 
 	fclose(out);
@@ -608,7 +608,7 @@ load_shadow(void)
 		struct stat st;
 		u.active = (stat(rcode_path, &st) != 0) ? 1 : 0;
 
-		qmap_put(users_map, uname, &u);
+		corm_put(users_map, uname, &u);
 	}
 	fclose(f);
 }
@@ -670,7 +670,7 @@ load_groups(void)
 		if (c3 && *(c3 + 1)) {
 			strncpy(gr.members, c3 + 1, sizeof(gr.members) - 1);
 		}
-		qmap_put(groups_map, gname, &gr);
+		corm_put(groups_map, gname, &gr);
 	}
 	fclose(f);
 }
@@ -699,7 +699,7 @@ load_passwd(void)
 		if (!uid_len || uid_len >= sizeof(uid_str)) continue;
 		memcpy(uid_str, c2 + 1, uid_len);
 		int uid = (int)strtol(uid_str, NULL, 10);
-		struct user *u = (struct user *)qmap_get(users_map, uname);
+		struct user *u = (struct user *)corm_get(users_map, uname);
 		if (u) u->uid = uid;
 	}
 	fclose(f);
@@ -726,13 +726,13 @@ login_as(int fd, const char *username, const char *target)
 {
 	/* Evict oldest session for this user if at cap */
 	enum { MAX_PER_USER = 8 };
-	uint32_t cur = qmap_iter(sessions_map, NULL, 0);
+	uint32_t cur = corm_iter(sessions_map, NULL, 0);
 	const void *k, *v;
 	time_t oldest_time = 0;
 	char oldest_token[128] = {0};
 	int count = 0;
 
-	while (qmap_next(&k, &v, cur)) {
+	while (corm_next(&k, &v, cur)) {
 		const struct session *s = v;
 		if (strcmp(s->username, username) == 0) {
 			count++;
@@ -742,10 +742,10 @@ login_as(int fd, const char *username, const char *target)
 			}
 		}
 	}
-	qmap_fin(cur);
+	corm_fin(cur);
 
 	if (count >= MAX_PER_USER && *oldest_token)
-		qmap_del(sessions_map, oldest_token);
+		corm_del(sessions_map, oldest_token);
 
 	char token[128], cookie[512];
 	if (generate_token(token, sizeof(token)) != 0)
@@ -755,7 +755,7 @@ login_as(int fd, const char *username, const char *target)
 	strncpy(sess.username, username, sizeof(sess.username) - 1);
 	sess.username[sizeof(sess.username) - 1] = '\0';
 	sess.created_at = time(NULL);
-	qmap_put(sessions_map, token, &sess);
+	corm_put(sessions_map, token, &sess);
 
 	snprintf(cookie, sizeof(cookie), "%s=%s%s",
 		auth_config.cookie_name, token, auth_config.cookie_attrs);
@@ -778,7 +778,7 @@ handle_login(int fd, char *body)
 	if (!*username || !*password)
 		return auth_login_error(fd, 400, "Missing username or password", ret);
 
-	struct user *user = (struct user *)qmap_get(users_map, username);
+	struct user *user = (struct user *)corm_get(users_map, username);
 	if (!user)
 		return auth_login_error(fd, 401, "Invalid credentials", ret);
 
@@ -802,7 +802,7 @@ handle_logout(int fd, char *body)
 	axil_env_get(fd, cookie, sizeof(cookie), "HTTP_COOKIE");
 	get_cookie(cookie, token, sizeof(token));
 	if (*token)
-		qmap_del(sessions_map, token);
+		corm_del(sessions_map, token);
 
 	snprintf(clear, sizeof(clear), "%s=; Path=/; Max-Age=0%s",
 		auth_config.cookie_name, auth_config.cookie_attrs);
@@ -854,7 +854,7 @@ handle_register(int fd, char *body)
 		return auth_register_error(fd, 400, "Password must be at least 8 characters", target);
 	if (strcmp(password, password_confirm) != 0)
 		return auth_register_error(fd, 400, "Passwords do not match", target);
-	if (qmap_get(users_map, username))
+	if (corm_get(users_map, username))
 		return auth_register_error(fd, 400, "Username already exists", target);
 
 	if (generate_bcrypt_salt(salt, sizeof(salt)) != 0)
@@ -869,7 +869,7 @@ handle_register(int fd, char *body)
 	skip_confirm = skip_confirm_required();
 	user.active  = skip_confirm ? 1 : 0;
 
-	qmap_put(users_map, username, &user);
+	corm_put(users_map, username, &user);
 
 	if (shadow_append(username, user.hash, uid) != 0)
 		fprintf(stderr, "axil-auth: warning: could not write shadow\n");
@@ -939,7 +939,7 @@ handle_confirm(int fd, char *body)
 	if (!*username || !*code)
 		return auth_confirm_error(fd, 400, "Missing parameters");
 
-	existing = (struct user *)qmap_get(users_map, username);
+	existing = (struct user *)corm_get(users_map, username);
 	if (!existing || existing->active)
 		return auth_confirm_error(fd, 400, "Invalid confirmation");
 
@@ -961,7 +961,7 @@ handle_confirm(int fd, char *body)
 
 	memcpy(&user, existing, sizeof(user));
 	user.active = 1;
-	qmap_put(users_map, username, &user);
+	corm_put(users_map, username, &user);
 	remove(rcode_path);
 
 	if (shadow_update(username, user.hash) != 0)
@@ -977,11 +977,11 @@ auth_init(void)
 {
 	char route[512];
 
-	users_map = qmap_open(NULL, "users", QM_STR,
-		qmap_reg(sizeof(struct user)),
+	users_map = corm_open(NULL, "users", CM_STR,
+		corm_reg(sizeof(struct user)),
 		auth_config.max_users, 0);
-	sessions_map = qmap_open(NULL, "sess", QM_STR,
-		qmap_reg(sizeof(struct session)),
+	sessions_map = corm_open(NULL, "sess", CM_STR,
+		corm_reg(sizeof(struct session)),
 		auth_config.max_sessions, 0);
 
 	mkdir(auth_config.etc_dir,   0755);
@@ -1007,8 +1007,8 @@ auth_init(void)
 #ifndef __OpenBSD__
 	load_passwd();
 #endif
-	groups_map = qmap_open(NULL, "grps", QM_STR,
-		qmap_reg(sizeof(struct grp_rec)),
+	groups_map = corm_open(NULL, "grps", CM_STR,
+		corm_reg(sizeof(struct grp_rec)),
 		0x7FF, 0);
 	load_groups();
 
@@ -1029,7 +1029,7 @@ auth_init(void)
 int
 auth_get_uid(const char *username)
 {
-	struct user *u = (struct user *)qmap_get(users_map, username);
+	struct user *u = (struct user *)corm_get(users_map, username);
 	return u ? u->uid : -1;
 }
 
@@ -1040,18 +1040,18 @@ auth_get_username(int uid, char *out, size_t len)
 		return -1;
 	out[0] = '\0';
 	if (users_map) {
-		uint32_t cur = qmap_iter(users_map, NULL, 0);
+		uint32_t cur = corm_iter(users_map, NULL, 0);
 		const void *k, *v;
-		while (qmap_next(&k, &v, cur)) {
+		while (corm_next(&k, &v, cur)) {
 			const struct user *u = v;
 			if (u && u->uid == uid) {
 				strncpy(out, (const char *)k, len - 1);
 				out[len - 1] = '\0';
-				qmap_fin(cur);
+				corm_fin(cur);
 				return 0;
 			}
 		}
-		qmap_fin(cur);
+		corm_fin(cur);
 	}
 
 	struct passwd *pw = getpwuid((uid_t)uid);
@@ -1070,7 +1070,7 @@ auth_create_group(const char *grp_name)
 	if (!grp_name || !*grp_name)
 		return -1;
 	if (groups_map) {
-		struct grp_rec *existing = (struct grp_rec *)qmap_get(groups_map, grp_name);
+		struct grp_rec *existing = (struct grp_rec *)corm_get(groups_map, grp_name);
 		if (existing)
 			return existing->gid;
 	}
@@ -1079,7 +1079,7 @@ auth_create_group(const char *grp_name)
 	g.gid = gid;
 	g.members[0] = '\0';
 	if (groups_map)
-		qmap_put(groups_map, grp_name, &g);
+		corm_put(groups_map, grp_name, &g);
 	sync_group_file();
 	return gid;
 }
@@ -1090,7 +1090,7 @@ auth_get_gid(const char *grp_name)
 	if (!grp_name || !*grp_name)
 		return -1;
 	if (groups_map) {
-		struct grp_rec *g = (struct grp_rec *)qmap_get(groups_map, grp_name);
+		struct grp_rec *g = (struct grp_rec *)corm_get(groups_map, grp_name);
 		if (g)
 			return g->gid;
 	}
@@ -1107,18 +1107,18 @@ auth_get_grpname(int gid, char *out, size_t len)
 		return -1;
 	out[0] = '\0';
 	if (groups_map) {
-		uint32_t cur = qmap_iter(groups_map, NULL, 0);
+		uint32_t cur = corm_iter(groups_map, NULL, 0);
 		const void *k, *v;
-		while (qmap_next(&k, &v, cur)) {
+		while (corm_next(&k, &v, cur)) {
 			const struct grp_rec *g = v;
 			if (g && g->gid == gid) {
 				strncpy(out, (const char *)k, len - 1);
 				out[len - 1] = '\0';
-				qmap_fin(cur);
+				corm_fin(cur);
 				return 0;
 			}
 		}
-		qmap_fin(cur);
+		corm_fin(cur);
 	}
 	struct group *gr = getgrgid((gid_t)gid);
 	if (gr && gr->gr_name) {
@@ -1158,7 +1158,7 @@ auth_user_in_group(const char *username, const char *grp_name)
 	if (!username || !*username || !grp_name || !*grp_name)
 		return 0;
 	if (groups_map) {
-		struct grp_rec *g = (struct grp_rec *)qmap_get(groups_map, grp_name);
+		struct grp_rec *g = (struct grp_rec *)corm_get(groups_map, grp_name);
 		if (g)
 			return is_member_in_list(g->members, username);
 	}
@@ -1179,13 +1179,13 @@ auth_group_add_member(const char *grp_name, const char *username)
 		return -1;
 	if (!groups_map)
 		return -1;
-	struct grp_rec *g = (struct grp_rec *)qmap_get(groups_map, grp_name);
+	struct grp_rec *g = (struct grp_rec *)corm_get(groups_map, grp_name);
 	struct grp_rec local_g;
 	if (!g) {
 		int gid = auth_create_group(grp_name);
 		if (gid < 0)
 			return -1;
-		g = (struct grp_rec *)qmap_get(groups_map, grp_name);
+		g = (struct grp_rec *)corm_get(groups_map, grp_name);
 		if (!g)
 			return -1;
 	}
@@ -1199,7 +1199,7 @@ auth_group_add_member(const char *grp_name, const char *username)
 	} else {
 		snprintf(local_g.members + cur_len, sizeof(local_g.members) - cur_len, ",%s", username);
 	}
-	qmap_put(groups_map, grp_name, &local_g);
+	corm_put(groups_map, grp_name, &local_g);
 	sync_group_file();
 	return 0;
 }
@@ -1209,7 +1209,7 @@ auth_group_del_member(const char *grp_name, const char *username)
 {
 	if (!grp_name || !*grp_name || !username || !*username || !groups_map)
 		return -1;
-	struct grp_rec *g = (struct grp_rec *)qmap_get(groups_map, grp_name);
+	struct grp_rec *g = (struct grp_rec *)corm_get(groups_map, grp_name);
 	if (!g)
 		return -1;
 	if (!is_member_in_list(g->members, username))
@@ -1241,7 +1241,7 @@ auth_group_del_member(const char *grp_name, const char *username)
 	}
 	strncpy(local_g.members, new_members, sizeof(local_g.members) - 1);
 	local_g.members[sizeof(local_g.members) - 1] = '\0';
-	qmap_put(groups_map, grp_name, &local_g);
+	corm_put(groups_map, grp_name, &local_g);
 	sync_group_file();
 	return 0;
 }
@@ -1253,7 +1253,7 @@ auth_group_get_members(const char *grp_name, char *out, size_t len)
 		return -1;
 	out[0] = '\0';
 	if (groups_map) {
-		struct grp_rec *g = (struct grp_rec *)qmap_get(groups_map, grp_name);
+		struct grp_rec *g = (struct grp_rec *)corm_get(groups_map, grp_name);
 		if (g) {
 			strncpy(out, g->members, len - 1);
 			out[len - 1] = '\0';

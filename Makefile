@@ -1,7 +1,7 @@
 all := libaxil-auth
 SONAME-libaxil-auth := axil-auth
 
-LDLIBS-libaxil-auth := -laxil -lqmap -lxylem
+LDLIBS-libaxil-auth := -laxil -lcorm -lxylem
 LDLIBS-libaxil-auth-Linux := -lcrypt
 LDFLAGS-libaxil-auth-Darwin := -undefined dynamic_lookup
 LDFLAGS-libaxil-auth := -L$(shell cd .. && pwd)/axil/lib
