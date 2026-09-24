@@ -1,0 +1,2 @@
+PROJECT_NAME           = "axil-auth"
+@INCLUDE = ../mk/Doxyfile
