@@ -9,6 +9,21 @@ USER="testuser_$$"
 fail() { echo "FAIL: $1"; rm -f "$COOKIE"; exit 1; }
 pass() { echo "PASS: $1"; }
 
+# Fixture rows appended to the account database are removed on every exit path,
+# including a failure -- otherwise a failed run leaves a real account behind.
+SQUAT="squatted_$$"
+ETC_DIR="${AUTH_ETC_DIR:-$(cd "$(dirname "$0")/../.." && pwd)/etc}"
+PASSWD="$ETC_DIR/passwd"
+SHADOW="$ETC_DIR/shadow"
+cleanup() {
+	rm -f "$COOKIE"
+	for f in "$PASSWD" "$SHADOW"; do
+		[ -w "$f" ] || continue
+		grep -v "^$SQUAT:" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+	done
+}
+trap cleanup EXIT INT TERM
+
 # 1. Empty session
 echo -n "1. Empty session... "
 out=$(curl -sb "$COOKIE" "$BASE$PREFIX/api/session")
@@ -87,4 +102,43 @@ status2=$(curl -so /dev/null -w "%{http_code}" \
 [ "$status2" = "200" ] && pass "multi-cookie no crash" || fail "expected 200, got: $status2"
 
 rm -f "$COOKIE"
+
+# 14. A registered account's passwd row must name a no-op shell.
+# The shell field is what a downstream terminal check consults before granting a
+# login shell, so /bin/sh here would hand every registered account a server shell.
+echo -n "14. Registered account has a no-op shell... "
+if [ ! -r "$PASSWD" ]; then
+	fail "cannot read $PASSWD (set AUTH_ETC_DIR)"
+fi
+row=$(grep "^$USER:" "$PASSWD" | tail -1)
+if [ -z "$row" ]; then
+	fail "no passwd row for $USER"
+fi
+shell=$(printf '%s' "$row" | awk -F: '{print $7}')
+case "$shell" in
+/bin/false|*/false) pass "passwd shell is $shell" ;;
+*) fail "passwd shell is '$shell', expected /bin/false" ;;
+esac
+
+# 15. A name already in passwd must not be claimable by registration.
+# load_passwd() does not seed the user map from passwd, so such a name used to be
+# registrable -- and the resulting session then resolved to that real account.
+echo -n "15. Registering a passwd-only name is refused... "
+printf '%s:x:99999:67::/home/%s:/bin/sh\n' "$SQUAT" "$SQUAT" >> "$PASSWD"
+out=$(curl -s -X POST "$BASE$PREFIX/register" \
+	-d "username=$SQUAT&password=pass1234&password2=pass1234&email=squat@test.com")
+echo "$out" | grep -qi "exists" \
+	&& pass "passwd-only name refused" \
+	|| fail "passwd-only name was accepted: $out"
+
+# 16. ...and the refused registration left no shadow row behind either.
+echo -n "16. Refused registration created no shadow row... "
+if [ -r "$SHADOW" ]; then
+	grep -q "^$SQUAT:" "$SHADOW" \
+		&& fail "shadow row created for refused registration" \
+		|| pass "no shadow row"
+else
+	pass "shadow unreadable, skipped"
+fi
+
 echo "All axil-auth tests passed."

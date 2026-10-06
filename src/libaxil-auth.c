@@ -282,6 +282,31 @@ next_uid(void)
 
 /* Session helpers */
 
+/* Non-zero on success: the xy bus zero-fills a hook result when no module
+ * implements it, so a "0 means valid" predicate would authenticate everyone the
+ * moment axil-auth is not loaded. */
+XY_IMPL(int, auth_password_matches,
+	const char *, username, const char *, password)
+{
+	if (!username || !*username || !password || !*password)
+		return 0;
+
+	const struct user *user = corm_get(users_map, username);
+	if (!user)
+		return 0;
+
+	/* A no-op stored hash ("*", "!", "!!") makes crypt() return NULL, which is
+	 * how a locked system account is kept from authenticating at all. */
+	char *hash = crypt(password, user->hash);
+	if (!hash || strcmp(hash, user->hash) != 0)
+		return 0;
+
+	if (!user->active)
+		return 0;
+
+	return 1;
+}
+
 XY_IMPL(const char *, get_session_user, const char *, token)
 {
 	if (!token || !*token)
@@ -440,6 +465,13 @@ shadow_append(const char *username, const char *hash, int uid)
 	return 0;
 }
 
+/* SECURITY: the shell field below is the enforcement point for terminal access,
+ * not a convenience default. Downstream code (axil-tty) grants a login shell
+ * only when the passwd entry for an authenticated identity names a real shell;
+ * /bin/sh here would hand every registered account a shell on the server. Do not
+ * "fix" this to a login shell. */
+#define AUTH_DEFAULT_SHELL "/bin/false"
+
 static int
 passwd_append(const char *username, int uid)
 {
@@ -450,11 +482,11 @@ passwd_append(const char *username, int uid)
 	FILE *f = fdopen(fd, "a");
 	if (!f) { close(fd); return -1; }
 #ifdef __OpenBSD__
-	fprintf(f, "%s:*:%d:%d::0:0:%s:%s/%s:/bin/sh\n",
+	fprintf(f, "%s:*:%d:%d::0:0:%s:%s/%s:" AUTH_DEFAULT_SHELL "\n",
 		username, uid, auth_config.www_gid,
 		username, auth_config.home_dir, username);
 #else
-	fprintf(f, "%s:x:%d:%d::%s/%s:/bin/sh\n",
+	fprintf(f, "%s:x:%d:%d::%s/%s:" AUTH_DEFAULT_SHELL "\n",
 		username, uid, auth_config.www_gid,
 		auth_config.home_dir, username);
 #endif
@@ -778,16 +810,11 @@ handle_login(int fd, char *body)
 	if (!*username || !*password)
 		return auth_login_error(fd, 400, "Missing username or password", ret);
 
-	struct user *user = (struct user *)corm_get(users_map, username);
-	if (!user)
+	if (!auth_password_matches(username, password)) {
+		/* One message for every failure so the form is not an account
+		 * oracle; "not confirmed" is folded in deliberately. */
 		return auth_login_error(fd, 401, "Invalid credentials", ret);
-
-	char *hash = crypt(password, user->hash);
-	if (!hash || strcmp(hash, user->hash) != 0)
-		return auth_login_error(fd, 401, "Invalid credentials", ret);
-
-	if (!user->active)
-		return auth_login_error(fd, 401, "Account not confirmed", ret);
+	}
 
 	return login_as(fd, username, ret);
 }
@@ -854,7 +881,7 @@ handle_register(int fd, char *body)
 		return auth_register_error(fd, 400, "Password must be at least 8 characters", target);
 	if (strcmp(password, password_confirm) != 0)
 		return auth_register_error(fd, 400, "Passwords do not match", target);
-	if (corm_get(users_map, username))
+	if (auth_username_taken(username))
 		return auth_register_error(fd, 400, "Username already exists", target);
 
 	if (generate_bcrypt_salt(salt, sizeof(salt)) != 0)
@@ -1062,6 +1089,65 @@ auth_get_username(int uid, char *out, size_t len)
 	}
 
 	return -1;
+}
+
+/* Whether the first colon-separated field of a passwd line matches `username`. */
+static int
+passwd_line_matches(const char *line, const char *username)
+{
+	size_t len = strlen(username);
+	const char *c = strchr(line, ':');
+
+	if (!c || (size_t)(c - line) != len)
+		return 0;
+	return strncmp(line, username, len) == 0;
+}
+
+/* True when username has a row in the passwd file this module owns. */
+static int
+passwd_file_contains(const char *username)
+{
+	char path[512];
+	passwd_path(path, sizeof(path));
+	FILE *f = fopen(path, "r");
+	if (!f)
+		return 0;
+
+	char line[512];
+	int found = 0;
+	while (!found && fgets(line, sizeof(line), f)) {
+		strip_trailing_nl(line);
+		if (passwd_line_matches(line, username))
+			found = 1;
+	}
+	fclose(f);
+	return found;
+}
+
+int
+auth_username_taken(const char *username)
+{
+	if (!username || !*username)
+		return 0;
+
+	/* Registered here. */
+	if (users_map && corm_get(users_map, username))
+		return 1;
+
+	/* In the passwd file we own. load_passwd() deliberately does not seed the
+	 * user map from passwd, so this is the check that covers a passwd-only
+	 * account -- the one getpwnam() would later resolve for a squatted
+	 * session name. */
+	if (passwd_file_contains(username))
+		return 1;
+
+	/* Resolvable by the C library. Under the production chroot this is the
+	 * same file; outside one it is the host database, and a host account name
+	 * must not be registrable either. */
+	if (getpwnam(username))
+		return 1;
+
+	return 0;
 }
 
 int

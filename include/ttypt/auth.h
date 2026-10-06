@@ -66,10 +66,25 @@ int auth_get_uid(const char *username);
  * @brief Look up the username for a registered uid.
  * @param[in]  uid User id.
  * @param[out] out Destination buffer.
- * @param[in]  len Capacity of out.
+ * @param[out]  len Capacity of out.
  * @return 0 on success, -1 when not found.
  */
 int auth_get_username(int uid, char *out, size_t len);
+
+/**
+ * @brief Whether a username is already claimed by the account database.
+ *
+ * A name is taken when it is registered here, present in the passwd file this
+ * module owns, or resolvable by the C library. All three are consulted because
+ * load_passwd() deliberately does not seed the user map from passwd -- it only
+ * patches the uid of names already loaded from shadow -- so a passwd-only entry
+ * is absent from the user map while still being a real account. Registering over
+ * such a name hands the caller's session that account's uid and shell.
+ *
+ * @param[in] username Candidate username; may be NULL or empty.
+ * @return Non-zero when the name must not be registered.
+ */
+int auth_username_taken(const char *username);
 
 /* Group management and POSIX /etc/group operations */
 /**
@@ -144,6 +159,29 @@ XY_DECL(const char *, get_session_user, const char *, token);
 
 /** @brief Resolve the username of the session on a client fd. */
 XY_DECL(const char *, get_request_user, int, fd);
+
+/**
+ * @brief Check a username/password pair against the stored credential.
+ *
+ * Exposed so that non-HTTP login surfaces (a MUCK-style `connect` command, for
+ * instance) can authenticate through the same code path as the HTTP form rather
+ * than asserting an identity. Fails closed: an unknown user, a wrong password, an
+ * unconfirmed account and a no-op stored hash all return 0, and the failures are
+ * deliberately indistinguishable so that callers cannot be used to enumerate
+ * accounts. A `*`/`!` stored hash makes crypt() fail, which is what keeps a
+ * locked system account from authenticating at all.
+ *
+ * @note Returns *non-zero* on success on purpose. This hook is reached through the
+ *       xy bus, whose dispatch zero-fills the result when no module implements it
+ *       (see XY_IMPL's adapter_call). A predicate whose success value were 0 would
+ *       therefore report "valid" for every caller whenever axil-auth is absent.
+ * @param[in] username Username to check.
+ * @param[in] password Password to check.
+ * @return Non-zero when the credential is valid, 0 otherwise.
+ */
+XY_DECL(int, auth_password_matches,
+	const char *, username,
+	const char *, password);
 
 /** @brief Require a login, emitting the login challenge when absent. */
 XY_DECL(int, require_login, int, fd, const char *, username);
