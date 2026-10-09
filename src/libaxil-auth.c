@@ -23,9 +23,11 @@
 #include <crypt.h>
 #endif
 
-#define AUTH_IMPL
-#include "./../include/ttypt/auth.h"
-#undef AUTH_IMPL
+#include <ttypt/auth-outcome.h>
+#include <ttypt/auth-config.h>
+
+int auth_create_group(const char *grp_name);
+int auth_group_add_member(const char *grp_name, const char *username);
 
 /* ------------------------------------------------------------------ */
 /* Config — defaults; site writes fields before calling auth_init()   */
@@ -1002,6 +1004,11 @@ handle_confirm(int fd, char *body)
 void
 auth_init(void)
 {
+	static int initialized = 0;
+	if (initialized)
+		return;
+	initialized = 1;
+
 	char route[512];
 
 	users_map = corm_open(NULL, "users", CM_STR,
@@ -1053,15 +1060,13 @@ auth_init(void)
 
 /* xy_install — sets nothing; site configures then calls auth_init() */
 
-int
-auth_get_uid(const char *username)
+XY_IMPL(int, auth_get_uid, const char *, username)
 {
 	struct user *u = (struct user *)corm_get(users_map, username);
 	return u ? u->uid : -1;
 }
 
-int
-auth_get_username(int uid, char *out, size_t len)
+XY_IMPL(int, auth_get_username, int, uid, char *, out, size_t, len)
 {
 	if (!out || len == 0 || uid < 0)
 		return -1;
@@ -1124,8 +1129,7 @@ passwd_file_contains(const char *username)
 	return found;
 }
 
-int
-auth_username_taken(const char *username)
+XY_IMPL(int, auth_username_taken, const char *, username)
 {
 	if (!username || !*username)
 		return 0;
@@ -1150,8 +1154,7 @@ auth_username_taken(const char *username)
 	return 0;
 }
 
-int
-auth_create_group(const char *grp_name)
+XY_IMPL(int, auth_create_group, const char *, grp_name)
 {
 	if (!grp_name || !*grp_name)
 		return -1;
@@ -1170,8 +1173,7 @@ auth_create_group(const char *grp_name)
 	return gid;
 }
 
-int
-auth_get_gid(const char *grp_name)
+XY_IMPL(int, auth_get_gid, const char *, grp_name)
 {
 	if (!grp_name || !*grp_name)
 		return -1;
@@ -1186,8 +1188,7 @@ auth_get_gid(const char *grp_name)
 	return -1;
 }
 
-int
-auth_get_grpname(int gid, char *out, size_t len)
+XY_IMPL(int, auth_get_grpname, int, gid, char *, out, size_t, len)
 {
 	if (!out || len == 0 || gid < 0)
 		return -1;
@@ -1238,8 +1239,7 @@ is_member_in_list(const char *members, const char *username)
 	return 0;
 }
 
-int
-auth_user_in_group(const char *username, const char *grp_name)
+XY_IMPL(int, auth_user_in_group, const char *, username, const char *, grp_name)
 {
 	if (!username || !*username || !grp_name || !*grp_name)
 		return 0;
@@ -1258,8 +1258,7 @@ auth_user_in_group(const char *username, const char *grp_name)
 	return 0;
 }
 
-int
-auth_group_add_member(const char *grp_name, const char *username)
+XY_IMPL(int, auth_group_add_member, const char *, grp_name, const char *, username)
 {
 	if (!grp_name || !*grp_name || !username || !*username)
 		return -1;
@@ -1290,8 +1289,7 @@ auth_group_add_member(const char *grp_name, const char *username)
 	return 0;
 }
 
-int
-auth_group_del_member(const char *grp_name, const char *username)
+XY_IMPL(int, auth_group_del_member, const char *, grp_name, const char *, username)
 {
 	if (!grp_name || !*grp_name || !username || !*username || !groups_map)
 		return -1;
@@ -1332,8 +1330,7 @@ auth_group_del_member(const char *grp_name, const char *username)
 	return 0;
 }
 
-int
-auth_group_get_members(const char *grp_name, char *out, size_t len)
+XY_IMPL(int, auth_group_get_members, const char *, grp_name, char *, out, size_t, len)
 {
 	if (!grp_name || !*grp_name || !out || len == 0)
 		return -1;
@@ -1349,9 +1346,24 @@ auth_group_get_members(const char *grp_name, char *out, size_t len)
 	return -1;
 }
 
+XY_IMPL(int, auth_www_gid, void)
+{
+	return auth_config.www_gid;
+}
+
 void
 xy_install(void)
 {
-	/* Intentionally empty.
-	 * Write auth_config fields as needed, then call auth_init(). */
+	const char *e;
+	if ((e = getenv("AXIL_AUTH_ETC")) && *e)
+		auth_config.etc_dir = e;
+	if ((e = getenv("AXIL_AUTH_USERS")) && *e)
+		auth_config.users_dir = e;
+	if ((e = getenv("AXIL_AUTH_HOME")) && *e)
+		auth_config.home_dir = e;
+	if ((e = getenv("AXIL_AUTH_ROUTE")) && *e)
+		auth_config.route_prefix = e;
+	if ((e = getenv("AXIL_AUTH_GID")) && *e)
+		auth_config.www_gid = atoi(e);
+	auth_init();
 }
