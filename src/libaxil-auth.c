@@ -324,25 +324,21 @@ XY_IMPL(const char *, get_session_user, const char *, token)
 	return s->username;
 }
 
-XY_IMPL(int, get_cookie,
-	const char *, cookie, char *, token, size_t, len)
+static int extract_cookie_val(const char *cookie, const char *name, char *token, size_t len)
 {
 	const char *p;
 	size_t nlen;
 
-	token[0] = '\0';
-
-	if (!cookie || !*cookie)
+	if (!cookie || !*cookie || !name || !*name)
 		return -1;
 
-	nlen = strlen(auth_config.cookie_name);
+	nlen = strlen(name);
 	p = cookie;
 
 	while (*p) {
 		while (*p == ' ' || *p == '\t') p++;
 
-		if (strncmp(p, auth_config.cookie_name, nlen) == 0
-		    && p[nlen] == '=') {
+		if (strncmp(p, name, nlen) == 0 && p[nlen] == '=') {
 			p += nlen + 1;
 			/* cookies are separated by "; " */
 			const char *end = p;
@@ -359,6 +355,25 @@ XY_IMPL(int, get_cookie,
 		/* advance past this cookie */
 		while (*p && *p != ';') p++;
 		if (*p == ';') p++;
+	}
+
+	return -1;
+}
+
+XY_IMPL(int, get_cookie,
+	const char *, cookie, char *, token, size_t, len)
+{
+	token[0] = '\0';
+
+	if (!cookie || !*cookie)
+		return -1;
+
+	if (extract_cookie_val(cookie, auth_config.cookie_name, token, len) == 0)
+		return 0;
+
+	if (strcmp(auth_config.cookie_name, "QSESSION") != 0) {
+		if (extract_cookie_val(cookie, "QSESSION", token, len) == 0)
+			return 0;
 	}
 
 	return -1;
@@ -1008,6 +1023,15 @@ auth_init(void)
 	if (initialized)
 		return;
 	initialized = 1;
+
+	const char *env_cookie = getenv("AXIL_COOKIE_NAME");
+	if (env_cookie && *env_cookie) {
+		auth_config.cookie_name = env_cookie;
+	} else if (axil_config.port != 0 && axil_config.port != 80 && axil_config.port != 443 && axil_config.port != 8080) {
+		static char port_cookie[64];
+		snprintf(port_cookie, sizeof(port_cookie), "QSESSION_%u", axil_config.port);
+		auth_config.cookie_name = port_cookie;
+	}
 
 	char route[512];
 
