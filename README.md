@@ -120,11 +120,15 @@ Configure behavior using environment variables:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `AXIL_AUTH_COOKIE` | `QSESSION` | Name of the HTTP session cookie |
+| `AXIL_AUTH_COOKIE` | `QSESSION` (or `QSESSION_<port>`) | Name of the HTTP session cookie |
 | `AXIL_AUTH_GID` | `67` | POSIX Group ID assigned to newly created users |
 | `AXIL_AUTH_GROUP` | `www` | POSIX Group name assigned to newly created users |
 | `AXIL_AUTH_DB` | `NULL` | Optional path to persistent corm session database |
 | `AXIL_AUTH_SHELL` | `/bin/false` | Default login shell for newly registered accounts |
+
+### Multi-Instance Isolation & Port-Scoped Cookies
+
+When running multiple independent Axil instances simultaneously on the same host (such as the main site on `:8080` and Auren on `:4242`), cookies default to `QSESSION` on standard ports (80/443/8080) and `QSESSION_<port>` on custom ports (e.g. `QSESSION_4242`), with automatic fallback. This guarantees that browser sessions on different ports do not clobber each other's credentials. The cookie name can also be overridden explicitly using `AXIL_COOKIE_NAME` or `AXIL_AUTH_COOKIE`.
 
 ---
 
