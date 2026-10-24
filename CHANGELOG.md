@@ -1,4 +1,11 @@
-## 1.2.0
+## [1.2.1]
+
+- **Port-Qualified Session Cookie Names**:
+  - Added support for port-qualified and configured cookie names (e.g. `QSESSION_<port>`) preventing cookie clobbering across local daemon instances running on distinct ports.
+- **Two-Header Separation & Flag Cleanup**:
+  - Removed obsolete build flags and verified strict two-header separation.
+
+## [1.2.0]
 
 - **The default shell is `/bin/false`, and that is the enforcement point for
   terminal access — not a convenience default.** Every passwd row this module
