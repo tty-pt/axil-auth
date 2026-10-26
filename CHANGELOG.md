@@ -1,4 +1,4 @@
-## [1.2.1]
+## [1.3.0]
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/tty-pt/axil-auth/main/logo.png" alt="axil-auth logo" width="220" />
