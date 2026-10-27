@@ -1,9 +1,5 @@
 ## [1.3.0]
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/tty-pt/axil-auth/main/logo.png" alt="axil-auth logo" width="220" />
-</p>
-
 - **Port-Qualified Session Cookie Names**:
   - Added support for port-qualified and configured cookie names (e.g. `QSESSION_<port>`) preventing cookie clobbering across local daemon instances running on distinct ports.
 - **Two-Header Separation & Flag Cleanup**:
