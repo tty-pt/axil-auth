@@ -9,48 +9,11 @@
 [![Authentication](https://img.shields.io/badge/security-auth%20%2B%20sessions-16A34A)](#)
 [![axil module](https://img.shields.io/badge/module-axil-4B8BBE)](#)
 
-> Secure session management, user registration, credential verification, and terminal access gating for [axil](https://github.com/tty-pt/axil).
-
-`axil-auth` is the canonical authentication and session security module for the axil web server. It provides bcrypt-hashed user accounts, cookie-based session tracking (`QSESSION`), CSRF token verification, resource ownership tracking, and fail-closed shell gating for interactive services like [axil-tty](https://github.com/tty-pt/axil-tty).
+> Secure session management, user registration, credential verification, and terminal access gating for [axil](https://github.com/tty-pt/axil). Canonical header is `<ttypt/auth.h>`.
 
 ---
 
-## Contents
-
-- [Architecture & Security Model](#architecture--security-model)
-- [Features](#features)
-- [Quickstart: Run and Verify](#quickstart-run-and-verify)
-- [HTTP Endpoints](#http-endpoints)
-- [Configuration Reference](#configuration-reference)
-- [C API Integration](#c-api-integration)
-- [Terminal Access Gating](#terminal-access-gating)
-- [Installation & Build](#installation--build)
-- [License](#license)
-
----
-
-## Architecture & Security Model
-
-`axil-auth` mounts into Axil's request lifecycle via [libxylem](https://github.com/tty-pt/libxylem):
-
-- **In-Memory Session Store**: Tracks active session tokens in high-throughput [libcorm](https://github.com/tty-pt/libcorm) maps with automatic expiry and O(1) retrieval.
-- **Credential Storage**: Uses standard `/etc/passwd` (or sandboxed chroot shadow files) with bcrypt hashing (`libcrypt`).
-- **Clean Header Split**: Public types and configuration are separated into `<ttypt/auth-config.h>`, while outcome callbacks and verification primitives reside in `<ttypt/auth-outcome.h>` and `<ttypt/auth.h>`.
-- **Fail-Closed Terminal Gating**: Enforces `/bin/false` as the default shell for web-registered users, preventing unauthorized interactive terminal or shell spawning over WebSockets.
-
----
-
-## Features
-
-- **Bcrypt Password Security**: Robust password verification and hashing without third-party crypto bloat.
-- **Session Tokens via Cookie**: Configurable session cookie (`QSESSION` by default) with `SameSite=Lax` and `HttpOnly` flags.
-- **Programmatic Credential Verification**: Exports `auth_password_matches()` for custom auth hooks and zero-copy credential checks.
-- **Resource Ownership Tracking**: Automatically enforces file ownership (`chown` when running privileged, or metadata files when unprivileged).
-- **CSRF Token Generation & Validation**: Issues session-bound CSRF tokens to protect state-mutating endpoints (`POST`, `PUT`, `DELETE`).
-
----
-
-## Quickstart: Run and Verify
+## 1. Quickstart: Run and Verify
 
 Start Axil with `axil-auth` loaded:
 
@@ -60,49 +23,28 @@ axil -d -p 8080 -m libaxil-auth
 
 ### Verified `curl` Walkthrough
 
-#### 1. Register a User Account
 ```bash
+# 1. Register an account
 curl -s -X POST http://localhost:8080/auth/register \
   -H "Content-Type: application/json" \
-  -d '{
-    "username": "alice",
-    "password": "CorrectHorseBatteryStaple!"
-  }'
-```
+  -d '{"username": "alice", "password": "CorrectHorseBatteryStaple!"}'
 
-#### 2. Log In & Capture Session Cookie
-```bash
+# 2. Log in and save session cookie
 curl -s -i -X POST http://localhost:8080/auth/login \
   -c cookies.txt \
   -H "Content-Type: application/json" \
-  -d '{
-    "username": "alice",
-    "password": "CorrectHorseBatteryStaple!"
-  }'
-```
+  -d '{"username": "alice", "password": "CorrectHorseBatteryStaple!"}'
 
-#### 3. Inspect Active Session
-```bash
+# 3. Verify session
 curl -s http://localhost:8080/auth/api/session -b cookies.txt
-```
 
-**Response**:
-```json
-{
-  "authenticated": true,
-  "username": "alice",
-  "csrf_token": "a1b2c3d4e5f6..."
-}
-```
-
-#### 4. Log Out
-```bash
+# 4. Log out
 curl -s -X POST http://localhost:8080/auth/logout -b cookies.txt
 ```
 
 ---
 
-## HTTP Endpoints
+## 2. HTTP Endpoints
 
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :--- | :--- |
@@ -114,9 +56,7 @@ curl -s -X POST http://localhost:8080/auth/logout -b cookies.txt
 
 ---
 
-## Configuration Reference
-
-Configure behavior using environment variables:
+## 3. Configuration & Multi-Instance Isolation
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -126,20 +66,17 @@ Configure behavior using environment variables:
 | `AXIL_AUTH_DB` | `NULL` | Optional path to persistent corm session database |
 | `AXIL_AUTH_SHELL` | `/bin/false` | Default login shell for newly registered accounts |
 
-### Multi-Instance Isolation & Port-Scoped Cookies
-
-When running multiple independent Axil instances simultaneously on the same host (such as the main site on `:8080` and Auren on `:4242`), cookies default to `QSESSION` on standard ports (80/443/8080) and `QSESSION_<port>` on custom ports (e.g. `QSESSION_4242`), with automatic fallback. This guarantees that browser sessions on different ports do not clobber each other's credentials. The cookie name can also be overridden explicitly using `AXIL_COOKIE_NAME` or `AXIL_AUTH_COOKIE`.
+*When running multiple Axil instances simultaneously on the same host (e.g. `:8080` and `:4242`), cookies automatically scope to `QSESSION_<port>` to prevent session collisions.*
 
 ---
 
-## C API Integration
+## 4. C API Integration
 
 Consume authentication checks directly from other Axil modules or C daemons:
 
 ```c
 #include <stdio.h>
 #include <ttypt/auth.h>
-#include <ttypt/auth-config.h>
 
 void check_user(const char *user, const char *pass) {
     if (auth_password_matches(user, pass)) {
@@ -150,24 +87,14 @@ void check_user(const char *user, const char *pass) {
 }
 ```
 
-Link against `axil-auth`:
+Compile and link:
 ```sh
-cc my_module.c $(pkg-config --cflags --libs axil-auth)
+cc my_module.c $(pkg-config --cflags --libs axil-auth) -o my_module
 ```
 
 ---
 
-## Terminal Access Gating
-
-When deploying interactive services like [axil-tty](https://github.com/tty-pt/axil-tty), security requires that web-registered users cannot spawn arbitrary shell processes over WebSockets. `axil-auth` enforces:
-
-1. **Restricted Shell Default**: Web registration assigns `/bin/false` (or `AXIL_AUTH_SHELL`).
-2. **Interactive Gating**: `axil-tty` checks the user's login shell via `getpwnam()`; if set to `/bin/false` or `nologin`, WebSocket PTY spawning fails closed with HTTP 403 Forbidden.
-3. **Privileged Terminal Elevation**: Only system accounts provisioned with a valid shell (e.g. `/bin/sh` or `/bin/bash`) can establish interactive terminal sessions.
-
----
-
-## Installation & Build
+## 5. Installation & Build
 
 ### Prebuilt Packages
 Prebuilt packages are distributed on tty.pt for Linux (APT / Alpine / Arch / Fedora-RHEL), macOS (Homebrew), Windows (winget / MSYS2), and OpenBSD. Follow the [installation instructions](https://github.com/tty-pt/ci/blob/main/docs/install.md) and use **axil-auth** as the package name.
@@ -176,12 +103,8 @@ Prebuilt packages are distributed on tty.pt for Linux (APT / Alpine / Arch / Fed
 ```sh
 make                  # builds lib/libaxil-auth.so
 make test             # run unit and authentication test suite
-sudo make install     # install lib, headers, and axil-auth.pc to $(PREFIX)
+sudo make install     # install lib, headers, and axil-auth.pc to system
 ```
-
-**Dependencies:** `axil`, `libcorm`, `libxylem` (+ `libcrypt` on Linux).
-
----
 
 ## License
 
