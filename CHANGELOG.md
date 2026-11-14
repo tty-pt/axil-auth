@@ -1,3 +1,9 @@
+## [1.3.2] - 2026-11-14
+
+- **Rebuilt against axil 1.8.0**: the released packages were built against an axil whose header
+  included the retired `<ttypt/qsys.h>`; axil 1.8.0 includes `<ttypt/stele.h>`.
+- Documentation: README and logo path.
+
 ## [1.3.0]
 
 - **Port-Qualified Session Cookie Names**:
