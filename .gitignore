@@ -2,3 +2,6 @@
 *.d
 /lib
 /man
+/npm/node_modules
+/npm/build
+/npm/prebuilds

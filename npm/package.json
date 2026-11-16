@@ -1,0 +1,53 @@
+{
+  "name": "@tty-pt/axil-auth",
+  "version": "1.3.4",
+  "type": "module",
+  "description": "Node.js SDK, C header distribution, and Xylem HTTP authentication module (libaxil-auth) for Axil",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "prebuilds",
+    "include",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test tests/axil-auth.test.mjs"
+  },
+  "dependencies": {
+    "@tty-pt/stele": "^1.7.1"
+  },
+  "peerDependencies": {
+    "@tty-pt/stele": ">=1.7.0"
+  },
+  "devDependencies": {
+    "@tty-pt/stele": "^1.7.1"
+  },
+  "keywords": [
+    "axil",
+    "axil-auth",
+    "auth",
+    "authentication",
+    "session",
+    "cookie",
+    "xylem",
+    "corm",
+    "napi"
+  ],
+  "author": "Paulo Quirino <q@qnixsoft.com>",
+  "license": "BSD-2-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tty-pt/axil-auth.git",
+    "directory": "npm"
+  },
+  "homepage": "https://tty.pt"
+}
