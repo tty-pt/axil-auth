@@ -1,3 +1,10 @@
+## [1.3.4] - 2026-11-16
+
+### Added
+- **Colocated NPM Package `@tty-pt/axil-auth` (`npm/`)**:
+  - Added Node-API native addon (`npm/native/axil_auth_napi.c`, `npm/native/LIBS`) and JS/TS SDK (`npm/dist/index.js`, `npm/dist/index.d.ts`) exposing `getModulePath()`, `hasNativeModule()`, `getConfig()`, `configure()`, `initAuth()`, `extractCookie()`, `getSessionUser()`, `verifyPassword()`, and `usernameTaken()`.
+  - Bundled `libaxil-auth` shared library prebuilds for `axil -m auth` / `npx axil -m auth` and C headers (`npm/include/ttypt/{auth.h,auth-config.h,auth-outcome.h}`) for zero-root downstream builds.
+
 ## [1.3.3] - 2026-11-16
 
 - **Arch Linux (`pacman`) Packaging & OpenBSD Rebuild (`.github/workflows/ci.yml`)**:
