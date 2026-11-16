@@ -1,3 +1,8 @@
+## [1.3.3] - 2026-11-16
+
+- **Arch Linux (`pacman`) Packaging (`.github/workflows/ci.yml`)**:
+  - Added `pacman` to `publish_to` and `deps_pacman: "axil,libcorm,libxylem,libstele"` so `axil-auth` publishes across all 6 Unix OS targets (`deb`, `apk`, `rpm`, `pacman`, `brew`, `openbsd`).
+
 ## [1.3.2] - 2026-11-14
 
 - **Rebuilt against axil 1.8.0**: the released packages were built against an axil whose header
